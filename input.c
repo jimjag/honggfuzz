@@ -373,21 +373,28 @@ void input_addDynamicInput(
         dynfile->cov[i] = cov[i];
     }
     dynfile->size = len;
+    dynfile->idx = hfuzz->io.dynfileqCnt;
     memcpy(dynfile->data, data, len);
     snprintf(dynfile->path, sizeof(dynfile->path), "%s", path);
 
     MX_SCOPED_RWLOCK_WRITE(&hfuzz->io.dynfileq_mutex);
 
-    /* Sort it by coverage - put better coverage in front of the list */
-    struct dynfile_t* iter = NULL;
-    TAILQ_FOREACH_HF(iter, &hfuzz->io.dynfileq, pointers) {
-        if (input_cmpCov(dynfile, iter)) {
-            TAILQ_INSERT_BEFORE(iter, dynfile, pointers);
-            break;
+    if (hfuzz->cfg.minimize) {
+        /* For minimization, sort it by coverage - put better coverage earlier in the list */
+        struct dynfile_t* iter = NULL;
+        TAILQ_FOREACH_HF(iter, &hfuzz->io.dynfileq, pointers) {
+            if (input_cmpCov(dynfile, iter)) {
+                TAILQ_INSERT_BEFORE(iter, dynfile, pointers);
+                break;
+            }
         }
-    }
-    if (iter == NULL) {
-        TAILQ_INSERT_TAIL(&hfuzz->io.dynfileq, dynfile, pointers);
+        if (iter == NULL) {
+            TAILQ_INSERT_TAIL(&hfuzz->io.dynfileq, dynfile, pointers);
+        }
+    } else {
+        /* Otherwise add it, so it's tested next */
+        TAILQ_INSERT_HEAD(&hfuzz->io.dynfileq, dynfile, pointers);
+        hfuzz->io.dynfileqCurrent = TAILQ_FIRST(&hfuzz->io.dynfileq);
     }
     hfuzz->io.dynfileqCnt++;
     hfuzz->io.dynfileqMaxSz = HF_MAX(hfuzz->io.dynfileqMaxSz, len);
